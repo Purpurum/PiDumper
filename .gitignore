@@ -1,3 +1,9 @@
+#My own
+dataset_worker.ipynb
+output*
+results*
+todofunks.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

@@ -1,0 +1,7 @@
+# Usage: pip install -r requirements.txt
+
+ultralytics==8.0.198
+streamlit==1.27.2
+Pillow==10.0.1
+numpy==1.24.3
+opencv-python==4.6.0.66

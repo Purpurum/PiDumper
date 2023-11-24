@@ -1,0 +1,116 @@
+from io import BytesIO
+import os
+import shutil
+import cv2
+import numpy as np
+import streamlit as st
+from PIL import Image
+import tempfile
+from ultralytics import YOLO
+import detectors
+import utils
+from res.style import page_style
+import re
+import requests
+import zipfile
+
+@st.cache_data
+def load_models():
+    print("loading_models")
+    model1 = YOLO("models/seg_n_aug.pt")
+    model2 = YOLO("models/cls_garb_aug.pt")
+    model3 = YOLO("models/cls_truck.pt")
+    model4 = YOLO("models/det_garbage_aug.pt")
+    #model5 = YOLO("models/cls_correct.pt")
+    models_RGB = [model1, model2, model3, model4]
+    return models_RGB
+
+#Учитывай, что результатов может быть несколько, если было несколько подходящих фреймов в одом видео--------------------------------------
+def main():
+    #Загрузка стилей
+    page_style()
+    # Установка заголовка 
+    st.title('Классификация строительных отходов')
+    #Функция загрузки файла
+    def load():
+        load_type = ['jpg','png','jpeg','mkv','mp4','mpg','mpeg','mpeg4','zip']
+        uploaded_data = st.file_uploader(label="Выберите файл для распознавания",type=load_type)
+        if uploaded_data is not None:
+            file_type = get_file_type(uploaded_data.name)
+            if any(file_type == i for i in load_type[:3]):
+                image_original = load_img(uploaded_data)
+                image_cycle, res_cycle = run_cycle(models, image_original, type = "image")
+                #Вывод после картинки,  нолик - просто потому что---------------------------------
+                #Вывод номеров классов - тупа словарь ------------------------------------------------
+                st.text(res_cycle[0].names)
+                st.text("--------------------------------------------------------------------")
+                #Вывод вероятностей ------------------------------------------------
+                st.text(res_cycle[0].probs)
+                st.text("--------------------------------------------------------------------")
+                #Вывод чего-то определённого, например топ1
+                st.text(res_cycle[0].probs.top1)
+                st.text("--------------------------------------------------------------------")
+                type(image_cycle)
+                st.image(image_cycle)
+
+            elif file_type == 'zip':
+                if uploaded_data is not None:
+                    temp_dir = tempfile.mkdtemp()
+
+                    with zipfile.ZipFile(BytesIO(uploaded_data.getvalue()), 'r') as myzip:
+                        myzip.extractall(path=temp_dir)
+
+                    #Всё как у видео, только выводит столько раз подряд, сколько было видео
+                    for filename in os.listdir(temp_dir):
+                        file_path = os.path.join(temp_dir, filename)
+                        results_list = run_cycle(models, file_path, type = "video")
+                        #Вывод после видоса, первый нолик - номер в списке, второй нолик - просто потому что--
+                        #Вывод номеров классов - тупа словарь ------------------------------------------------
+                        st.text(results_list[0][0].names)
+                        st.text("--------------------------------------------------------------------")
+                        #Вывод вероятностей ------------------------------------------------
+                        st.text(results_list[0][0].probs)
+                        st.text("--------------------------------------------------------------------")
+
+                    shutil.rmtree(temp_dir)
+
+            elif any(file_type == i for i in load_type[4:-1]):
+                results_list = run_cycle(models, uploaded_data, type = "video")
+                #Вывод после видоса, первый нолик - номер в списке, второй нолик - просто потому что--
+                #Вывод номеров классов - тупа словарь ------------------------------------------------
+                st.text(results_list[0][0].names)
+                st.text("--------------------------------------------------------------------")
+                #Вывод вероятностей ------------------------------------------------
+                st.text(results_list[0][0].probs)
+                st.text("--------------------------------------------------------------------")
+            else:
+                st.text("Ошибка чтения файла, возможно неподходящий формат\n(убедитесь что в названии файла нет точек и специальных символов)")          
+        else:
+            return None
+    #Функция для получения расширения файла
+    def get_file_type(file):
+        return os.path.splitext(file)[1][1:]   
+    
+    load()
+    #load_camera()
+def run_cycle(models, image_original, type):
+    if type == "image":
+        image_detected, results = detectors.run_full_cycle(models, image_original, type)
+        return image_detected, results
+    elif type == "video":
+        results_list = detectors.run_full_cycle(models, image_original, type)
+        return results_list
+    
+def detect_objects(models, image, type = "segment"):
+    image_detected, results = detectors.run_model(models, image, type)
+    return image_detected, results
+
+def load_img(img_file):
+    img = img_file.getvalue()
+    image = Image.open(BytesIO(img))
+    return image
+
+if __name__ == '__main__':
+    models = load_models()
+    main()
+    
