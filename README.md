@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="res/baner2.jpg" alt="banner2" border="0" /></a>
+  <a href="https://ibb.co/NydyR24"><img src="https://i.ibb.co/nLNLpMW/baner2.png" alt="baner2" border="0"></a>
 </div>
 
 ## <div align="center">Стэк технологий📑</div>
