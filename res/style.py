@@ -3,7 +3,7 @@ def page_style():
     style = """
     <style>
     [data-testid="stAppViewContainer"] {
-    background-image: url("https://i.ibb.co/d2vsFP8/valli2.jpg");
+    background-image: url("https://i.ibb.co/0rtv2Px/fon.jpg");
     background-size: cover;
     }
     [data-testid="stVerticalBlock"]{
