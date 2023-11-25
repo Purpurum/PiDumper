@@ -108,15 +108,9 @@ def run_model(models, image, type = "segment"):
     else:
         print("Некорректный ввод типа модели!")
 
-def run_full_cycle(models, data, type, ensemle = False, route = "accurate"):
+def run_full_cycle(models, data, type = "video", video_params = [110, 130, 20], ensemble = False, route = "accurate"):
     """
     Функция представляет собой полный цикл обработки данных, будь то видео или изображение
-
-    Parameters:
-    models: пачка моделей.
-    data: данные.
-    ensemble: используется ли ансамбль.
-    route: выбор типа цикла 'fast' или 'accurate'.
     """
     def cycle_accurate(image, ansemble = True):
         result_img, results = run_model(models, image, "class_truck")
@@ -146,35 +140,116 @@ def run_full_cycle(models, data, type, ensemle = False, route = "accurate"):
         else:
             return cycle_fast(data)
         
-    elif type == "video":
-        frames_list = []
+    if type == "video":
+       return full_video_cycle(models, data, type = "video", video_params = [110, 130, 20], ensemble = False, route = "accurate")
+    
+    if type == "zip":
+        zip_results_list = []
+        zip_folder = utils.unzip_file(data)
+        for root, dirs, files in os.walk(zip_folder):
+            for file in files:
+                zip_results_list.append(os.path.join(root, file))
+        print(zip_results_list)
+
+    
+def full_video_cycle(models, data, type = "video", video_params = [110, 130, 20], ensemble = False, route = "accurate"):
+        frames_folder, fps = utils.video_to_frames(data, video_params[0], video_params[1], video_params[2])
+        print("Сбор путей фреймов")
+        frames_paths = []
+        for root, dirs, files in os.walk(frames_folder):
+            for file in files:
+                frames_paths.append(os.path.join(root, file))
+        print("Проверка на валидность")
         results_list = []
-        #Временной интервал соответствующий заданию
-        frames_folder, fps = utils.video_to_frames(data, 110, 130, 20)
-        if not os.listdir(frames_folder):
-            print(f"The directory {frames_folder} is empty.")
-        else:
-            print(f"The directory {frames_folder} is not empty.")
-        for filename in os.listdir(frames_folder):
-            if filename.endswith(".jpg"):
-                frame_path = os.path.join(frames_folder, filename)
-                frame = Image.open(frame_path)
-                if route == "accurate":
-                    try:
-                        res_image, results = cycle_accurate(frame)
-                        results_list.append(results)
-                        frames_list.append(res_image)
-                    except:
-                        pass
-                else:
-                    try:
-                        res_image, results = cycle_fast(frame)
-                        results_list.append(results)
-                        frames_list.append(res_image)
-                    except:
-                        pass
-        shutil.rmtree(frames_folder)
-        return results_list  
+        for frame in frames_paths:
+            img, results = run_model(models, frame, "class_correct")
+            results_list.append(results[0].probs.top1)
+        print("Добавление валидных путей")
+        first_check_list = []
+        for idx, result in enumerate(results_list):
+            if result == 0:
+                first_check_list.append(frames_paths[idx])
+        print("Проверка качества фреймов")
+        results_list = []
+        for frame in first_check_list:
+            img, results = run_model(models, frame, "class_truck")
+            results_list.append(results[0].probs.top1)
+        results_list
+        print("Добавление качественных фреймов")
+        second_check_list = []
+        for idx, result in enumerate(results_list):
+            if result == 1:
+                second_check_list.append(frames_paths[idx])
+        print("Загрузка изображений")
+        images = []
+        for frame in second_check_list:
+            image = Image.open(frame)
+            images.append(image)
+
+        if route == "accurate":
+            print('Старт "точного" пути')
+            segmentations_list = []
+            for image in images:
+                image, results = run_model(models, image, "segment")
+                segmentations_list.append(results)
+
+            masks_list = []
+            for result in segmentations_list:
+                mask = get_mask(result)
+                mask = Image.fromarray(mask)
+                masks_list.append(mask)
+
+            classifications = []
+            for mask in masks_list:
+                cls_seg_image, cls_seg_results = run_model(models, mask, "class_segment")
+                classifications.append(cls_seg_results[0].probs.top1)
+            segm_result = utils.most_common(results_list)
+
+            print('Проверка запуска ансамбля')
+            if ensemble == False:
+                return segm_result
+            else:
+                ans_results_list = []
+                for mask in masks_list:
+                    result = ensemble_detect(models, mask, "segment")
+                    ans_results_list.append(result)
+                ans_results_list.append(segm_result)
+                full_result = utils.most_common(ans_results_list)
+                return full_result
+            
+        elif route == "fast":
+            detections_list = []
+            detection_results = []
+            for image in images:
+                image, results = run_model(models, image, "detect")
+                detections_list.append(results)
+                detection_results.append(results[0].boxes.cls[0].cpu().numpy().astype(int))
+            main_detection_result = utils.most_common(detection_results)
+
+            crops_list = []
+            for result in detections_list:
+                crop = get_crop(result)
+                crop = Image.fromarray(crop)
+                crops_list.append(crop)
+
+            classifications = []
+            for crop in crops_list:
+                cls_det_image, cls_det_results = run_model(models, crop, "class_detect")
+                classifications.append(cls_det_results[0].probs.top1)
+
+            classifications.append(main_detection_result)
+            det_result = utils.most_common(classifications)
+            print('Проверка запуска ансамбля')
+            if ensemble == False:
+                return det_result
+            else:
+                ans_results_list = []
+                for mask in masks_list:
+                    result = ensemble_detect(models, mask, "detect")
+                    ans_results_list.append(result)
+                ans_results_list.append(det_result)
+                full_result = utils.most_common(ans_results_list)
+                return full_result
 
 def count_classes(results):
     """
@@ -187,16 +262,26 @@ def ensemble_detect(models, frame, type):
     """
     Ансамблирование моделей и подсчет решения.
     """
-    results_list = []
-    if type == "seg":
-        models_pack = [models[11],models[10],models[9]]
+    if type == "segment":
+            img, results1 = run_model(models, frame, "cls_seg_ansemble1")
+            img, results2 = run_model(models, frame, "cls_seg_ansemble2")
+            img, results3 = run_model(models, frame, "cls_seg_ansemble3")
+            results_list = [results1[0].probs.top1, results2[0].probs.top1, results3[0].probs.top1]
+            most_common_class = max(results_list, key = results_list.count)
+            return most_common_class
 
-    if type == "det":
-        models_pack = [models[8],models[7],models[6]]
+    elif type == "detect":
+            img, results1 = run_model(models, frame, "cls_det_ansemble1")
+            img, results2 = run_model(models, frame, "cls_det_ansemble2")
+            img, results3 = run_model(models, frame, "cls_det_ansemble3")
+            results_list = [results1[0].probs.top1, results2[0].probs.top1, results3[0].probs.top1]
+            most_common_class = max(results_list, key = results_list.count)
+            return most_common_class
+    else:
+        print("Неверный тип!")
+        return
 
-    for model in models_pack:
-            img, results = model(frame, verbose = False)
-            results_list.append(results[0].probs.top1)
+    
 
     
 

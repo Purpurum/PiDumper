@@ -6,6 +6,7 @@ import numpy as np
 import streamlit as st
 from PIL import Image
 from io import BytesIO
+import zipfile
 
 def check_file_extension(file_path):
     filename, file_extension = os.path.splitext(file_path)
@@ -43,3 +44,13 @@ def video_to_frames(video_file, start_time, end_time, skip_frames = 20):
     vidcap.release()
 
     return temp_dir, fps
+
+def most_common(list):
+    most_common_class = max(list, key = list.count)
+    return most_common_class
+
+def unzip_file(zip_filepath):
+    temp_dir = tempfile.mkdtemp()
+    with zipfile.ZipFile(zip_filepath, 'r') as zip_ref:
+        zip_ref.extractall(temp_dir)
+    return temp_dir
