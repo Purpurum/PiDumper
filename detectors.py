@@ -19,41 +19,94 @@ def get_mask(results):
             mask = cv2.bitwise_not(mask)
             masked = cv2.bitwise_and(results[0].orig_img, results[0].orig_img, mask=mask)
             return masked
+    
+def get_crop(results):
+    if(results[0].boxes is not None):
+        for box in results[0].boxes.xyxy.tolist():
+            x1, y1, x2, y2 = box
+            ultralytics_crop_object = results[0].orig_img[int(y1):int(y2), int(x1):int(x2)]
+            black_background = np.zeros_like(results[0].orig_img)
+            black_background[int(y1):int(y2), int(x1):int(x2)] = ultralytics_crop_object
+            return black_background
 
 def run_model(models, image, type = "segment"):
     """
     Функция для детекции изображения одиночной моделью.
     """
     if type == "segment":
-        print("Сегментирую")
+        #print("Сегментирую")
         results = models[0](image, verbose=False)
         im_array = results[0].plot()
         result_img = Image.fromarray(im_array[..., ::-1])
         return result_img, results
-    if type == "class_garbage":
-        print("Классифицирую мусор")
+    if type == "class_segment":
+        #print("Классифицирую мусор насегментированный")
         results = models[1](image, verbose=False)
         im_array = results[0].plot()
         result_img = Image.fromarray(im_array[..., ::-1])
         return result_img, results
     if type == "class_truck":
-        print("Классифицирую наличие грузовика")
+        #print("Классифицирую наличие грузовика")
         results = models[2](image, verbose=False)
         im_array = results[0].plot()
         result_img = Image.fromarray(im_array[..., ::-1])
         return result_img, results
     if type == "detect":
-        print("Детекчу")
+        #print("Детекчу")
         results = models[3](image, verbose=False)
         im_array = results[0].plot()
         result_img = Image.fromarray(im_array[..., ::-1])
         return result_img, results
     if type == "class_correct":
-        print("Проверяю корректность изображения")
+       # print("Проверяю корректность изображения")
         results = models[4](image, verbose=False)
         im_array = results[0].plot()
         result_img = Image.fromarray(im_array[..., ::-1])
         return result_img, results
+    if type == "class_detect":
+        #print("Классифицирую надетекченное")
+        results = models[5](image, verbose=False)
+        im_array = results[0].plot()
+        result_img = Image.fromarray(im_array[..., ::-1])
+        return result_img, results
+    if type == "cls_det_ansemble1":
+        #print("Классифицирую надетекченное в рамках ансамбля")
+        results = models[6](image, verbose=False)
+        im_array = results[0].plot()
+        result_img = Image.fromarray(im_array[..., ::-1])
+        return result_img, results
+    if type == "cls_det_ansemble2":
+        #print("Классифицирую надетекченное в рамках ансамбля")
+        results = models[7](image, verbose=False)
+        im_array = results[0].plot()
+        result_img = Image.fromarray(im_array[..., ::-1])
+        return result_img, results
+    if type == "cls_det_ansemble3":
+        #print("Классифицирую надетекченное в рамках ансамбля")
+        results = models[8](image, verbose=False)
+        im_array = results[0].plot()
+        result_img = Image.fromarray(im_array[..., ::-1])
+        return result_img, results
+    if type == "cls_seg_ansemble1":
+        #print("Классифицирую сегментированное в рамках ансамбля")
+        results = models[9](image, verbose=False)
+        im_array = results[0].plot()
+        result_img = Image.fromarray(im_array[..., ::-1])
+        return result_img, results
+    if type == "cls_seg_ansemble2":
+        #print("Классифицирую сегментированное в рамках ансамбля")
+        results = models[10](image, verbose=False)
+        im_array = results[0].plot()
+        result_img = Image.fromarray(im_array[..., ::-1])
+        return result_img, results
+    if type == "cls_seg_ansemble3":
+        #print("Классифицирую сегментированное в рамках ансамбля")
+        results = models[11](image, verbose=False)
+        im_array = results[0].plot()
+        result_img = Image.fromarray(im_array[..., ::-1])
+        return result_img, results
+    else:
+        print("Некорректный ввод типа модели!")
 
 def run_full_cycle(models, data, type, ensemle = False, route = "accurate"):
     """
@@ -65,31 +118,27 @@ def run_full_cycle(models, data, type, ensemle = False, route = "accurate"):
     ensemble: используется ли ансамбль.
     route: выбор типа цикла 'fast' или 'accurate'.
     """
-    def cycle_accurate(image, half = False):
+    def cycle_accurate(image, ansemble = True):
         result_img, results = run_model(models, image, "class_truck")
-        if half != True:
-            if results[0].probs.top1 == 1 or results[0].probs.top1 == "1":
-                result_img_seg, results_seg = run_model(models, image, "segment")
-                result_img_mask = get_mask(results_seg)
-                result_img_cls, results_cls = run_model(models, result_img_mask, "class_garbage")
+        if results[0].probs.top1 == 1 or results[0].probs.top1 == "1":
+            result_img_seg, results_seg = run_model(models, image, "segment")
+            result_img_mask = get_mask(results_seg)
+            result_img_cls, results_cls = run_model(models, result_img_mask, "class_segment")
+            if ansemble != True:
                 return result_img_cls, results_cls
-            else:
-                if results[0].probs.top1 == 1 or results[0].probs.top1 == "1":
-                    result_img_seg, results_seg = run_model(models, image, "segment")
-                    return result_img_seg, results_seg
+        else:
+            pass
             
-    def cycle_fast(image, half = False):
+    def cycle_fast(image, ansemble = False):
         result_img, results = run_model(models, image, "class_truck")
-        if half != True:
-            if results[0].probs.top1 == 1 or results[0].probs.top1 == "1":
-                result_img_det, results_det = run_model(models, image, "detect")
-                result_img_mask = get_mask(results_det)
-                result_img_cls, results_cls = run_model(models, result_img_mask, "class_garbage_detect")
+        if results[0].probs.top1 == 1 or results[0].probs.top1 == "1":
+            result_img_det, results_det = run_model(models, image, "detect")
+            result_img_mask = get_crop(results_det)
+            result_img_cls, results_cls = run_model(models, result_img_mask, "class_detect")
+            if ansemble != True:
                 return result_img_cls, results_cls
-            else:
-                if results[0].probs.top1 == 1 or results[0].probs.top1 == "1":
-                    result_img_det, results_det = run_model(models, image, "detect")
-                    return result_img_det, results_det
+        else:
+             pass
 
     if type == "image":
         if route == "accurate":
@@ -134,22 +183,21 @@ def count_classes(results):
     names_count = Counter(results[0].boxes.cls.tolist())
     return names_count
 
-def ensemble_detect(models_pack, image, time = None, type = "image"):
+def ensemble_detect(models, frame, type):
     """
     Ансамблирование моделей и подсчет решения.
     """
-    try:
-        image = image[...,::-1]
-    except TypeError:
-        print("Неверный формат массива")
-    if type == "image":
-        results_list = [count_classes(model(image)) for model in models_pack]
+    results_list = []
+    if type == "seg":
+        models_pack = [models[11],models[10],models[9]]
 
-        most_common_values = Counter()
-        for result in results_list:
-            most_common_values += result
+    if type == "det":
+        models_pack = [models[8],models[7],models[6]]
 
-        output_list = most_common_values.most_common()
-        result_img = run_model(models_pack[1], image)
+    for model in models_pack:
+            img, results = model(frame, verbose = False)
+            results_list.append(results[0].probs.top1)
 
-        return result_img, output_list
+    
+
+    
