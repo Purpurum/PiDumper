@@ -26,9 +26,9 @@ def load_models():
     model_ans_det1 = YOLO("models/cls_ans_det1.pt") #n
     model_ans_det2 = YOLO("models/cls_ans_det2.pt") #n
     model_ans_det3 = YOLO("models/cls_ans_det3.pt") #m
-    model_ans_seg1 = YOLO("models/cls_ans_seg2.pt") #n
+    model_ans_seg1 = YOLO("models/cls_ans_seg1.pt") #n
     model_ans_seg2 = YOLO("models/cls_ans_seg2.pt") #n
-    model_ans_seg3 = YOLO("models/cls_ans_seg2.pt") #m
+    model_ans_seg3 = YOLO("models/cls_ans_seg3.pt") #m
     models_all = [model0, model1, model2, model3, model4, model5, model_ans_det1, model_ans_det2, model_ans_det3, model_ans_seg1, model_ans_seg2, model_ans_seg3]
     return models_all
 
