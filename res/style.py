@@ -8,7 +8,8 @@ def page_style():
     }
     [data-testid="stVerticalBlock"]{
     background-color: rgb(14, 17, 23, 0.75);
-    padding-block: 10px 20px;
+    padding-block: 10px 20px 10px 20px;
+    width: 100%
     writing-mode: horizontal-tb;
     border-radius: 15px;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.7);

@@ -108,7 +108,7 @@ def run_model(models, image, type = "segment"):
     else:
         print("Некорректный ввод типа модели!")
 
-def run_full_cycle(models, data, type = "video", video_params = [110, 130, 20], ensemble = False, route = "accurate"):
+def run_full_cycle(models, data, type, ensemble, route, video_params = [110, 150, 20]):
     """
     Функция представляет собой полный цикл обработки данных, будь то видео или изображение
     """
@@ -136,23 +136,30 @@ def run_full_cycle(models, data, type = "video", video_params = [110, 130, 20], 
 
     if type == "image":
         if route == "accurate":
+            data = Image.fromarray(data)
             return cycle_accurate(data)
         else:
             return cycle_fast(data)
         
     if type == "video":
-       return full_video_cycle(models, data, type = "video", video_params = [110, 130, 20], ensemble = False, route = "accurate")
+       return full_video_cycle(models, data, type, ensemble, route, video_params)
     
     if type == "zip":
+        video_results_list = []
         zip_results_list = []
+        files_list = []
         zip_folder = utils.unzip_file(data)
         for root, dirs, files in os.walk(zip_folder):
             for file in files:
+                files_list.append(file)
                 zip_results_list.append(os.path.join(root, file))
-        print(zip_results_list)
+        for video_path in zip_results_list:
+            video_results_list.append(full_video_cycle(models, video_path, type, ensemble, route, video_params))
+        return video_results_list, files_list
+
 
     
-def full_video_cycle(models, data, type = "video", video_params = [110, 130, 20], ensemble = False, route = "accurate"):
+def full_video_cycle(models, data, type, ensemble, route, video_params):
         frames_folder, fps = utils.video_to_frames(data, video_params[0], video_params[1], video_params[2])
         print("Сбор путей фреймов")
         frames_paths = []
@@ -165,21 +172,25 @@ def full_video_cycle(models, data, type = "video", video_params = [110, 130, 20]
             img, results = run_model(models, frame, "class_correct")
             results_list.append(results[0].probs.top1)
         print("Добавление валидных путей")
+        
         first_check_list = []
         for idx, result in enumerate(results_list):
             if result == 0:
                 first_check_list.append(frames_paths[idx])
+        if len(first_check_list) == 0:
+            return "Невалидное видео!"
         print("Проверка качества фреймов")
         results_list = []
         for frame in first_check_list:
             img, results = run_model(models, frame, "class_truck")
             results_list.append(results[0].probs.top1)
-        results_list
+        
         print("Добавление качественных фреймов")
         second_check_list = []
         for idx, result in enumerate(results_list):
             if result == 1:
                 second_check_list.append(frames_paths[idx])
+
         print("Загрузка изображений")
         images = []
         for frame in second_check_list:
@@ -192,12 +203,18 @@ def full_video_cycle(models, data, type = "video", video_params = [110, 130, 20]
             for image in images:
                 image, results = run_model(models, image, "segment")
                 segmentations_list.append(results)
+                
 
+            
             masks_list = []
             for result in segmentations_list:
-                mask = get_mask(result)
-                mask = Image.fromarray(mask)
-                masks_list.append(mask)
+                try:
+                    mask = get_mask(result)
+                    print(mask)
+                    mask = Image.fromarray(mask)
+                    masks_list.append(mask)
+                except:
+                    continue
 
             classifications = []
             for mask in masks_list:
@@ -207,6 +224,7 @@ def full_video_cycle(models, data, type = "video", video_params = [110, 130, 20]
 
             print('Проверка запуска ансамбля')
             if ensemble == False:
+                print(f"Вывожу неполный результат сегм: {segm_result}")
                 return segm_result
             else:
                 ans_results_list = []
@@ -215,22 +233,29 @@ def full_video_cycle(models, data, type = "video", video_params = [110, 130, 20]
                     ans_results_list.append(result)
                 ans_results_list.append(segm_result)
                 full_result = utils.most_common(ans_results_list)
+                print(f"Вывожу полный результат сегм: {full_result}")
                 return full_result
             
         elif route == "fast":
             detections_list = []
             detection_results = []
             for image in images:
-                image, results = run_model(models, image, "detect")
-                detections_list.append(results)
-                detection_results.append(results[0].boxes.cls[0].cpu().numpy().astype(int))
+                try:
+                    image, results = run_model(models, image, "detect")
+                    detections_list.append(results)
+                    detection_results.append(results[0].boxes.cls[0].cpu().numpy().astype(int))
+                except:
+                    continue
             main_detection_result = utils.most_common(detection_results)
 
             crops_list = []
             for result in detections_list:
-                crop = get_crop(result)
-                crop = Image.fromarray(crop)
-                crops_list.append(crop)
+                try:
+                    crop = get_crop(result)
+                    crop = Image.fromarray(crop)
+                    crops_list.append(crop)
+                except:
+                    continue
 
             classifications = []
             for crop in crops_list:
@@ -241,14 +266,16 @@ def full_video_cycle(models, data, type = "video", video_params = [110, 130, 20]
             det_result = utils.most_common(classifications)
             print('Проверка запуска ансамбля')
             if ensemble == False:
+                print(f"Вывожу неполный результат дет: {det_result}")
                 return det_result
             else:
                 ans_results_list = []
-                for mask in masks_list:
-                    result = ensemble_detect(models, mask, "detect")
+                for crop in crops_list:
+                    result = ensemble_detect(models, crop, "detect")
                     ans_results_list.append(result)
                 ans_results_list.append(det_result)
                 full_result = utils.most_common(ans_results_list)
+                print(f"Вывожу полный результат дет: {full_result}")
                 return full_result
 
 def count_classes(results):

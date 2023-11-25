@@ -1,18 +1,13 @@
 from io import BytesIO
 import os
-import shutil
-import cv2
-import numpy as np
 import streamlit as st
 from PIL import Image
-import tempfile
 from ultralytics import YOLO
 import detectors
-import utils
 from res.style import page_style
-import re
-import requests
-import zipfile
+import csv
+import shutil
+import base64
 
 @st.cache_data
 def load_models():
@@ -41,17 +36,21 @@ def main():
     #Функция загрузки файла
     def load():
         load_type = ['jpg','png','jpeg','mkv','mp4','mpg','mpeg','mpeg4','zip']
-        route = "accurate" #выбор типа цикла 'fast' или 'accurate'.
-        ensemle = False #используется ли ансамбль.
+        dict = {0: 'кирпичи', 1: 'бетон', 2: 'грунт', 3: 'дерево'}
         col1, col2 = st.columns(2)
         with col1:
-            on = st.toggle('Ускорить? с потерей качества')
+            on = st.toggle('Boost on')
             if on:
                 route = "fast"
+            else:
+                route = "accurate"
         with col2:
             on = st.toggle('Подключть ансамбль моделей?')
             if on:
                 ensemle = True 
+            else:
+                ensemle = False
+        
 
         uploaded_data = st.file_uploader(label="Выберите файл для распознавания",type=load_type)       
 
@@ -60,51 +59,53 @@ def main():
             if any(file_type == i for i in load_type[:3]):
                 image_original = load_img(uploaded_data)
                 type = "image"
-                image_cycle, res_cycle = run_cycle(models, image_original, type, ensemle, route)
                 #Вывод после картинки,  нолик - просто потому что---------------------------------
                 #Вывод номеров классов - тупа словарь ------------------------------------------------
-                st.text(res_cycle[0].names)
-                st.text("--------------------------------------------------------------------")
-                #Вывод вероятностей ------------------------------------------------
-                st.text(res_cycle[0].probs)
-                st.text("--------------------------------------------------------------------")
-                #Вывод чего-то определённого, например топ1
-                st.text(res_cycle[0].probs.top1)
-                st.text("--------------------------------------------------------------------")
-                type(image_cycle)
-                st.image(image_cycle)
-
+                if route == "fast":
+                    col3, col4 = st.columns(2)
+                    with col3:
+                        st.image(image_original, caption="Оригинальное изображение",width=300)
+                    with col4:
+                        st.image(detectors.run_model(models, image_original, "detect")[0], caption="Результат детекции",width=300)
+                    if ensemle == True:
+                        st.image(detectors.run_model(models, image_original, "class_detect")[0], caption="Результат классификации",width=300)
+                    else:
+                        st.image(detectors.run_model(models, image_original, "cls_det_ansemble3")[0], caption="Результат классификации",width=300)
+                else:
+                    col3, col4 = st.columns(2)
+                    with col3:
+                        st.image(image_original, caption="Оригинальное изображение",width=300)
+                    with col4:
+                        st.image(detectors.run_model(models, image_original, "segment")[0], caption="Результат сегментации",width=300)
+                    if ensemle == True:
+                        st.image(detectors.run_model(models, image_original, "cls_seg_ansemble3")[0], caption="Результат классификации",width=300)
+                    else:
+                        st.image(detectors.run_model(models, image_original, "class_segment")[0], caption="Результат классификации",width=670)
             elif file_type == load_type[8]:
                 if uploaded_data is not None:
-                    temp_dir = tempfile.mkdtemp()
-
-                    with zipfile.ZipFile(BytesIO(uploaded_data.getvalue()), 'r') as myzip:
-                        myzip.extractall(path=temp_dir)
-
-                    #Всё как у видео, только выводит столько раз подряд, сколько было видео
-                    for filename in os.listdir(temp_dir):
-                        file_path = os.path.join(temp_dir, filename)
-                        type = "video"
-                        results_list = run_cycle(models, file_path, type, ensemle, route)
+                        type = "zip"
+                        results_list, files_list = detectors.run_full_cycle(models=models, data=uploaded_data, type=type, ensemble=ensemle, route=route)
                         #Вывод после видоса, первый нолик - номер в списке, второй нолик - просто потому что--
                         #Вывод номеров классов - тупа словарь ------------------------------------------------
-                        st.text(results_list[0][0].names)
-                        st.text("--------------------------------------------------------------------")
-                        #Вывод вероятностей ------------------------------------------------
-                        st.text(results_list[0][0].probs)
-                        st.text("--------------------------------------------------------------------")
-
-                    shutil.rmtree(temp_dir)
+                        
+                        data = [['id', 'name', 'result']]
+                        
+                        for idx, item in enumerate(results_list):
+                            data.append([idx, files_list[idx], dict[item]])
+                        if st.button('Получить ссылку'):
+                            create_and_download_csv(data, "result.csv")
+                        
 
             elif any(file_type == i for i in load_type[3:8]):
                 type = "video"
-                results_list = run_cycle(models, uploaded_data, type, ensemle, route)
+                print(ensemle)
+                results_list = detectors.run_full_cycle(models=models, data=uploaded_data, type=type, ensemble=ensemle, route=route)
                 #Вывод после видоса, первый нолик - номер в списке, второй нолик - просто потому что--
                 #Вывод номеров классов - тупа словарь ------------------------------------------------
-                st.text(results_list[0][0].names)
+                st.text(dict[results_list])
                 st.text("--------------------------------------------------------------------")
                 #Вывод вероятностей ------------------------------------------------
-                st.text(results_list[0][0].probs)
+                st.text(results_list)
                 st.text("--------------------------------------------------------------------")
             else:
                 st.text("Ошибка чтения файла, возможно неподходящий формат\n(убедитесь что в названии файла нет точек и специальных символов)")          
@@ -116,27 +117,30 @@ def main():
     
     load()
     #load_camera()
-def run_cycle(models, image_original, type, ensemle , route):
-    if type == "image":
-        image_detected, results = detectors.run_full_cycle(models, image_original, type, ensemle , route)
-        return image_detected, results
-    elif type == "video":
-        results_list = detectors.run_full_cycle(models, image_original, type, ensemle , route)
-        return results_list
+
+
+def create_and_download_csv(data, filename):
+    # Create CSV file
+    csv_file = open(filename, 'w', newline='')
+    writer = csv.writer(csv_file)
+    writer.writerows(data)
+    csv_file.close()
+
+    # Read the CSV file in binary mode
+    with open(filename, 'rb') as f:
+        csv_data = f.read()
+
+    # Create a download button
+    b64 = base64.b64encode(csv_data).decode()  # some strings
+    linko= f'<a href="data:file/csv;base64,{b64}" download="{filename}">Download CSV File</a>'
+    st.markdown(linko, unsafe_allow_html=True)
+        
     
-def detect_objects(models, image, type = "segment"):
-    image_detected, results = detectors.run_model(models, image, type)
-    return image_detected, results
 
 def load_img(img_file):
     img = img_file.getvalue()
     image = Image.open(BytesIO(img))
     return image
-
-if __name__ == '__main__':
-    models = load_models()
-    main()
-    
 
 if __name__ == '__main__':
     models = load_models()
